@@ -919,6 +919,9 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
   const ElfW(Ehdr) *header;
   const ElfW(Phdr) *phdr;
   const ElfW(Phdr) *ph;
+  const ElfW(Shdr) *shdr;
+  const ElfW(Shdr) *sh;
+  size_t maplengthsh;
   size_t maplength;
   int type;
   struct stat64 st;
@@ -1060,6 +1063,56 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
       goto call_lose_errno;
     }
 
+  maplengthsh = header->e_shnum * sizeof(Elf32_Shdr);
+  if (header->e_shoff + maplength <= (size_t) fbp->len)
+     shdr = (void *) (fbp->buf + header->e_shoff);
+  else {
+     shdr = alloca(maplengthsh);
+     __lseek(fd, header->e_shoff, SEEK_SET);
+     if ((size_t) __libc_read (fd, (void *) shdr, maplengthsh) != maplengthsh) {
+	errstring = N_("cannot read file data");
+	goto call_lose_errno;
+     }
+  }
+  int counter;
+  int strndx;
+  int strsiz;
+  for (sh = shdr,counter = 0; counter < header->e_shnum ;++counter,++sh) {
+  	if ( counter == header->e_shstrndx) {
+	  strndx = sh->sh_offset; 
+	  strsiz = sh->sh_size;
+	  _dl_debug_printf("String Address %x\n", strndx);
+	}
+  	_dl_debug_printf("name %x\n", sh->sh_name);
+	_dl_debug_printf("type %x\n", sh->sh_type);
+	_dl_debug_printf("flags %x\n", sh->sh_flags);
+	_dl_debug_printf("add %x \n", sh->sh_addr);
+	_dl_debug_printf("off %x \n", sh->sh_offset);
+	_dl_debug_printf("size %x \n", sh->sh_size);
+	_dl_debug_printf("link %x \n", sh->sh_link);
+	_dl_debug_printf("info %x \n", sh->sh_info);
+	_dl_debug_printf("addralign %x \n", sh->sh_addralign);
+	_dl_debug_printf("entsize %x \n", sh->sh_entsize);
+	_dl_debug_printf("---------------------------------------------------------\n");
+  }
+  char* strptr;
+  if (strndx+strsiz <= (size_t) fbp->len)
+     strptr = (void *)(fbp->buf + strndx); 
+  else {
+     strptr = alloca(strsiz);
+     __lseek(fd, strndx, SEEK_SET);
+     if ((size_t) __libc_read (fd, (void *) strptr, strsiz) != strsiz) {
+	errstring = N_("cannot read file data");
+	goto call_lose_errno;
+     }
+  }
+
+  for (counter =0, sh = shdr; counter < header->e_shnum; ++counter,++sh) {
+	_dl_debug_printf("String %s \n", strptr+sh->sh_name);
+	_dl_debug_printf("Name %x \n", sh->sh_name);
+  }
+
+
   /* Extract the remaining details we need from the ELF header
      and then read in the program header table.  */
   l->l_entry = header->e_entry;
@@ -1087,7 +1140,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 
   {
     /* Scan the program header table, collecting its load commands.  */
-    struct loadcmd
+    struct loadcmd 
       {
 	ElfW(Addr) mapstart, mapend, dataend, allocend;
 	ElfW(Off) mapoff;
@@ -1264,7 +1317,6 @@ cannot allocate TLS data structures for initial thread");
 
     /* Length of the sections to be loaded.  */
     maplength = loadcmds[nloadcmds - 1].allocend - c->mapstart;
-
     if (__builtin_expect (type, ET_DYN) == ET_DYN)
       {
 	/* This is a position-independent shared object.  We can let the
