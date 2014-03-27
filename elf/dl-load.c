@@ -108,6 +108,7 @@ int __stack_prot attribute_hidden attribute_relro
 #endif
 
 
+
 /* Type for the buffer we put the ELF header and hopefully the program
    header.  This buffer does not really have to be too large.  In most
    cases the program header follows the ELF header directly.  If this
@@ -902,7 +903,20 @@ lose (int code, int fd, const char *name, char *realname, struct link_map *l,
 
   _dl_signal_error (code, name, NULL, msg);
 }
-
+/* Function to compare the first part of the string and see if it matches*/
+int
+_cmp_ps_string (char *str1, const char *str2) {
+	char *ptr1, *ptr2; 
+	if (*str1 == '\0') return -1;
+        int len2 = strlen(str2);
+	int len1 = strlen(str1);
+	if (len2 > len1) return -1;
+	int i;
+	for (i=0; i<len2; ++i) {
+	  if (*(str1+i) != *(str2+i)) return -1; 
+	}
+	return 1;
+}
 
 /* Map in the shared object NAME, actually located in REALNAME, and already
    opened on FD.  */
@@ -1062,9 +1076,10 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
       errstring = N_("cannot create shared object descriptor");
       goto call_lose_errno;
     }
-
+  //Get the length of all the section headers
   maplengthsh = header->e_shnum * sizeof(Elf32_Shdr);
-  if (header->e_shoff + maplength <= (size_t) fbp->len)
+  //Get the pointer to the beginning of the first section header in the buffer
+  if (header->e_shoff + maplengthsh <= (size_t) fbp->len)
      shdr = (void *) (fbp->buf + header->e_shoff);
   else {
      shdr = alloca(maplengthsh);
@@ -1074,28 +1089,20 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	goto call_lose_errno;
      }
   }
-  int counter;
-  int strndx;
-  int strsiz;
+  int counter=0;
+  //Offset of the string table
+  int strndx=0;
+  //Size of the string table 
+  int strsiz=0;
   for (sh = shdr,counter = 0; counter < header->e_shnum ;++counter,++sh) {
   	if ( counter == header->e_shstrndx) {
+	  //The information are contained in the header number "shstrndx" 
 	  strndx = sh->sh_offset; 
 	  strsiz = sh->sh_size;
-	  _dl_debug_printf("String Address %x\n", strndx);
 	}
-  	_dl_debug_printf("name %x\n", sh->sh_name);
-	_dl_debug_printf("type %x\n", sh->sh_type);
-	_dl_debug_printf("flags %x\n", sh->sh_flags);
-	_dl_debug_printf("add %x \n", sh->sh_addr);
-	_dl_debug_printf("off %x \n", sh->sh_offset);
-	_dl_debug_printf("size %x \n", sh->sh_size);
-	_dl_debug_printf("link %x \n", sh->sh_link);
-	_dl_debug_printf("info %x \n", sh->sh_info);
-	_dl_debug_printf("addralign %x \n", sh->sh_addralign);
-	_dl_debug_printf("entsize %x \n", sh->sh_entsize);
-	_dl_debug_printf("---------------------------------------------------------\n");
   }
   char* strptr;
+  //Get the pointer to the beginnig of the string table
   if (strndx+strsiz <= (size_t) fbp->len)
      strptr = (void *)(fbp->buf + strndx); 
   else {
@@ -1106,12 +1113,47 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	goto call_lose_errno;
      }
   }
+  //Struct used to map segments and names, the one to be sent to the kernel somehow :)
+  struct PrivSec_t {
+	char name[100];
+	Elf32_Addr add_beg;
+	Elf32_Addr add_end;
+	struct PrivSec_t *next;
+  } *head=NULL,*curr=NULL; 
 
+  //Construction of the data struct we the mapping information
   for (counter =0, sh = shdr; counter < header->e_shnum; ++counter,++sh) {
-	_dl_debug_printf("String %s \n", strptr+sh->sh_name);
-	_dl_debug_printf("Name %x \n", sh->sh_name);
+	char *name = malloc(sizeof(char)*strlen(strptr+sh->sh_name));
+	strcpy(name, strptr+sh->sh_name);
+	const char *fun = ".fun_ps_";
+	const char *dat = ".dat_ps_";
+	if (*(name) != '\0' ) {
+	   if ((_cmp_ps_string(name, fun) == 1) || (_cmp_ps_string(name, dat) == 1)) {
+	   //Create a new element in the list if .fun_ps_ or .dat_ps_ section name is detected
+		   if (head == NULL) {
+		      head = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t));
+		      head->add_beg = sh->sh_addr;
+		      head->add_end = 0x0;
+		      head->next = NULL;
+		      strcpy((char *)head->name, (const char *)strptr+sh->sh_name);
+		      curr = head;
+		   }
+		   else {
+		      curr->next = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t)); 
+		      if (curr->next == NULL) {
+			errstring = N_("cannot allocate enough memory");
+			goto call_lose_errno;
+		      }
+		      curr = curr->next;
+		      curr->add_beg = sh->sh_addr;
+		      curr->add_end = 0x0;
+		      curr->next = NULL;
+		      strcpy((char *)curr->name, (const char *) strptr+sh->sh_name);
+		   }
+	   }
+	}
+	free(name);
   }
-
 
   /* Extract the remaining details we need from the ELF header
      and then read in the program header table.  */
@@ -1192,6 +1234,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	  c->dataend = ph->p_vaddr + ph->p_filesz;
 	  c->allocend = ph->p_vaddr + ph->p_memsz;
 	  c->mapoff = ph->p_offset & ~(GLRO(dl_pagesize) - 1);
+
 
 	  /* Determine whether there is a gap between the last segment
 	     and this one.  */
@@ -1459,8 +1502,27 @@ cannot allocate TLS data structures for initial thread");
 
 	++c;
       }
+     curr = head;
+     /* Basing on the information of the physical headers.
+      * Here I correct the beginning address and the end address of the data structure */
+     while (curr != NULL) {
+     	struct loadcmd *tmp = loadcmds; 
+     	Elf32_Addr tmpadd_beg=0;
+     	Elf32_Addr tmpadd_end=0;
+      	int i;
+	for (i=0; i< nloadcmds; ++i) {
+	   if((tmpadd_beg < tmp[i].mapstart) && (tmp[i].mapstart < curr->add_beg)){	
+	 	tmpadd_beg = tmp[i].mapstart;
+		tmpadd_end = tmp[i].mapend;
+	   }
+	}
+	curr->add_beg = tmpadd_beg;
+	curr->add_end = tmpadd_end;
+	curr = curr->next;
+     }
+     _dl_debug_printf("Return %u\n", syscall(351, head));
   }
-
+  
   if (l->l_ld == 0)
     {
       if (__builtin_expect (type == ET_DYN, 0))
