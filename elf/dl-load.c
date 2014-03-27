@@ -1120,7 +1120,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	Elf32_Addr add_end;
 	struct PrivSec_t *next;
   } *head=NULL,*curr=NULL; 
-
+  bool flag = false;
   //Construction of the data struct we the mapping information
   for (counter =0, sh = shdr; counter < header->e_shnum; ++counter,++sh) {
 	char *name = malloc(sizeof(char)*strlen(strptr+sh->sh_name));
@@ -1130,6 +1130,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	if (*(name) != '\0' ) {
 	   if ((_cmp_ps_string(name, fun) == 1) || (_cmp_ps_string(name, dat) == 1)) {
 	   //Create a new element in the list if .fun_ps_ or .dat_ps_ section name is detected
+		   flag = true;	   	  
 		   if (head == NULL) {
 		      head = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t));
 		      head->add_beg = sh->sh_addr;
@@ -1231,6 +1232,9 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	  c->mapstart = ph->p_vaddr & ~(GLRO(dl_pagesize) - 1);
 	  c->mapend = ((ph->p_vaddr + ph->p_filesz + GLRO(dl_pagesize) - 1)
 		       & ~(GLRO(dl_pagesize) - 1));
+	  _dl_debug_printf("map start %x \n", c->mapstart);
+	  _dl_debug_printf("map end %x \n", c->mapend);
+	  _dl_debug_printf("------------------------\n");
 	  c->dataend = ph->p_vaddr + ph->p_filesz;
 	  c->allocend = ph->p_vaddr + ph->p_memsz;
 	  c->mapoff = ph->p_offset & ~(GLRO(dl_pagesize) - 1);
@@ -1502,25 +1506,27 @@ cannot allocate TLS data structures for initial thread");
 
 	++c;
       }
-     curr = head;
-     /* Basing on the information of the physical headers.
-      * Here I correct the beginning address and the end address of the data structure */
-     while (curr != NULL) {
-     	struct loadcmd *tmp = loadcmds; 
-     	Elf32_Addr tmpadd_beg=0;
-     	Elf32_Addr tmpadd_end=0;
-      	int i;
-	for (i=0; i< nloadcmds; ++i) {
-	   if((tmpadd_beg < tmp[i].mapstart) && (tmp[i].mapstart < curr->add_beg)){	
-	 	tmpadd_beg = tmp[i].mapstart;
-		tmpadd_end = tmp[i].mapend;
-	   }
+      if (flag == true) {
+	     curr = head;
+	     /* Basing on the information of the physical headers.
+	      * Here I correct the beginning address and the end address of the data structure */
+	     while (curr != NULL) {
+		struct loadcmd *tmp = loadcmds; 
+		Elf32_Addr tmpadd_beg=0;
+		Elf32_Addr tmpadd_end=0;
+		int i;
+		for (i=0; i< nloadcmds; ++i) {
+		   if((tmpadd_beg < tmp[i].mapstart) && (tmp[i].mapstart < curr->add_beg)){	
+			tmpadd_beg = tmp[i].mapstart;
+			tmpadd_end = tmp[i].mapend;
+		   }
+		}
+		curr->add_beg = tmpadd_beg;
+		curr->add_end = tmpadd_end;
+		curr = curr->next;
+	     }
+	     _dl_debug_printf("Return %u\n", syscall(351, head));
 	}
-	curr->add_beg = tmpadd_beg;
-	curr->add_end = tmpadd_end;
-	curr = curr->next;
-     }
-     _dl_debug_printf("Return %u\n", syscall(351, head));
   }
   
   if (l->l_ld == 0)
