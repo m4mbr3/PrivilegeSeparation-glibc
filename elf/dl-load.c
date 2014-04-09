@@ -903,10 +903,24 @@ lose (int code, int fd, const char *name, char *realname, struct link_map *l,
 
   _dl_signal_error (code, name, NULL, msg);
 }
+/* Function to convert the privilege level from char to int*/
+int char_to_num( char* pStr ) 
+{
+  int iRetVal = 0; 
+ 
+  if ( pStr )
+  {
+    while ( *pStr && *pStr <= '9' && *pStr >= '0' ) 
+    {
+      iRetVal = (iRetVal * 10) + (*pStr - '0');
+      pStr++;
+    }
+  } 
+  return iRetVal; 
+} 
 /* Function to compare the first part of the string and see if it matches*/
 int
 _cmp_ps_string (char *str1, const char *str2) {
-	char *ptr1, *ptr2; 
 	if (*str1 == '\0') return -1;
         int len2 = strlen(str2);
 	int len1 = strlen(str1);
@@ -1121,16 +1135,19 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	struct PrivSec_t *next;
   } *head=NULL,*curr=NULL; 
   bool flag = false;
+  int max = -1;
+  const char *fun = ".fun_ps_";
+  const char *dat = ".dat_ps_";
   //Construction of the data struct we the mapping information
   for (counter =0, sh = shdr; counter < header->e_shnum; ++counter,++sh) {
 	char *name = malloc(sizeof(char)*strlen(strptr+sh->sh_name));
 	strcpy(name, strptr+sh->sh_name);
-	const char *fun = ".fun_ps_";
-	const char *dat = ".dat_ps_";
 	if (*(name) != '\0' ) {
 	   if ((_cmp_ps_string(name, fun) == 1) || (_cmp_ps_string(name, dat) == 1)) {
 	   //Create a new element in the list if .fun_ps_ or .dat_ps_ section name is detected
 		   flag = true;	   	  
+		   int num = char_to_num(name+8);
+		   if (max < num) max = num; 
 		   if (head == NULL) {
 		      head = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t));
 		      head->add_beg = sh->sh_addr;
@@ -1525,7 +1542,27 @@ cannot allocate TLS data structures for initial thread");
 		curr->add_end = tmpadd_end;
 		curr = curr->next;
 	     }
-	     _dl_debug_printf("Return %u\n", syscall(351, head));
+	     syscall(351, head, max);
+	     curr = head;
+	     while (curr != NULL) {
+		if ( max != char_to_num(curr->name+8) ) {
+			if (_cmp_ps_string(curr->name, fun) == 1)
+			{
+			  _dl_debug_printf("PROT_NONE %s %x %x\n", curr->name, curr->add_beg, curr->add_end);
+			  __mprotect ((void *)curr->add_beg,
+			 	(size_t)curr->add_end-curr->add_beg,
+			       PROT_NONE);
+			}
+			else { 
+			  _dl_debug_printf("PROT_WRITE %s %x %x\n", curr->name, curr->add_beg, curr->add_end);
+			  __mprotect ((void *)curr->add_beg,
+			 	(size_t)curr->add_end-curr->add_beg,
+			       PROT_NONE);
+			}
+
+		}
+		curr = curr->next;
+	     }
 	}
   }
   
