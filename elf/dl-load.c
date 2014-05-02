@@ -15,12 +15,14 @@
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
+   
 
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libintl.h>
 #include <stdbool.h>
+#include "privsep.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -38,6 +40,10 @@
 #include <stap-probe.h>
 
 #include <dl-dst.h>
+
+struct PrivSec_t *head=NULL, *curr=NULL;
+int max = -1;
+bool flag = false;
 
 /* On some systems, no flag bits are given to specify file mapping.  */
 #ifndef MAP_FILE
@@ -1128,14 +1134,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
      }
   }
   //Struct used to map segments and names, the one to be sent to the kernel somehow :)
-  struct PrivSec_t {
-	char name[100];
-	Elf32_Addr add_beg;
-	Elf32_Addr add_end;
-	struct PrivSec_t *next;
-  } *head=NULL,*curr=NULL; 
-  bool flag = false;
-  int max = -1;
+  bool flag2 = false;
   const char *fun = ".fun_ps_";
   const char *dat = ".dat_ps_";
   //Construction of the data struct we the mapping information
@@ -1146,6 +1145,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	   if ((_cmp_ps_string(name, fun) == 1) || (_cmp_ps_string(name, dat) == 1)) {
 	   //Create a new element in the list if .fun_ps_ or .dat_ps_ section name is detected
 		   flag = true;	   	  
+           flag2 = true;
 		   int num = char_to_num(name+8);
 		   if (max < num) max = num; 
 		   if (head == NULL) {
@@ -1523,7 +1523,7 @@ cannot allocate TLS data structures for initial thread");
 
 	++c;
       }
-      if (flag == true) {
+      if (flag2) {
 	     curr = head;
 	     /* Basing on the information of the physical headers.
 	      * Here I correct the beginning address and the end address of the data structure */
@@ -1542,8 +1542,7 @@ cannot allocate TLS data structures for initial thread");
 		curr->add_end = tmpadd_end;
 		curr = curr->next;
 	     }
-	     syscall(351, head, max);
-	     curr = head;
+	     	     curr = head;
 	     while (curr != NULL) {
 		if ( max != char_to_num(curr->name+8) ) {
 			if (_cmp_ps_string(curr->name, fun) == 1)
