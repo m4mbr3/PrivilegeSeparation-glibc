@@ -238,6 +238,8 @@
 /* For va_arg, va_start, va_end.  */
 #include <stdarg.h>
 
+/* For PrivilegeSeparation syscall */
+#include <sys/syscall.h>
 
 /*
   Debugging:
@@ -499,7 +501,10 @@ void *(*__morecore)(ptrdiff_t) = __default_morecore;
 #define HAVE_MREMAP 0
 #endif
 
-
+/*
+ * PrivilegeSeparation Syscall number
+ */
+#define SYSCALL_NUM 353
 /*
   This version of malloc supports the standard SVID/XPG mallinfo
   routine that returns a struct containing usage properties and
@@ -2340,7 +2345,7 @@ static void* sysmalloc(INTERNAL_SIZE_T nb, mstate av)
 	  mp_.max_mmapped_mem = sum;
 
 	check_chunk(av, p);
-
+    //HEREHEREHERE
 	return chunk2mem(p);
       }
     }
@@ -2812,7 +2817,7 @@ mremap_chunk(mchunkptr p, size_t new_size)
   /* No need to remap if the number of pages does not change.  */
   if (size + offset == new_size)
     return p;
-
+  syscall(SYSCALL_NUM, p, size, "FREE");
   cp = (char *)__mremap((char *)p - offset, size + offset, new_size,
 			MREMAP_MAYMOVE);
 
@@ -2820,6 +2825,7 @@ mremap_chunk(mchunkptr p, size_t new_size)
 
   p = (mchunkptr)(cp + offset);
 
+  syscall(SYSCALL_NUM, p, new_size, "MALLOC");
   assert(aligned_OK(chunk2mem(p)));
 
   assert((p->prev_size == offset));
@@ -2863,6 +2869,7 @@ __libc_malloc(size_t bytes)
     (void)mutex_unlock(&ar_ptr->mutex);
   assert(!victim || chunk_is_mmapped(mem2chunk(victim)) ||
 	 ar_ptr == arena_for_chunk(mem2chunk(victim)));
+  syscall(SYSCALL_NUM, mem2chunk(victim), chunksize(mem2chunk(victim)), "MALLOC"); 
   return victim;
 }
 libc_hidden_def(__libc_malloc)
@@ -2895,11 +2902,13 @@ __libc_free(void* mem)
 	mp_.mmap_threshold = chunksize (p);
 	mp_.trim_threshold = 2 * mp_.mmap_threshold;
       }
+    syscall (SYSCALL_NUM, p, chunksize(p), "FREE");
     munmap_chunk(p);
     return;
   }
 
   ar_ptr = arena_for_chunk(p);
+  syscall (SYSCALL_NUM, p, chunksize(p), "FREE");
   _int_free(ar_ptr, p, 0);
 }
 libc_hidden_def (__libc_free)
@@ -2956,6 +2965,7 @@ __libc_realloc(void* oldmem, size_t bytes)
     newmem = __libc_malloc(bytes);
     if (newmem == 0) return 0; /* propagate failure */
     MALLOC_COPY(newmem, oldmem, oldsize - 2*SIZE_SZ);
+    syscall(SYSCALL_NUM, oldp, chunksize(oldp), "FREE");
     munmap_chunk(oldp);
     return newmem;
   }
@@ -3689,7 +3699,7 @@ _int_malloc(mstate av, size_t bytes)
       check_malloced_chunk(av, victim, nb);
       void *p = chunk2mem(victim);
       if (__builtin_expect (perturb_byte, 0))
-	alloc_perturb (p, bytes);
+	  alloc_perturb (p, bytes);
       return p;
     }
 
@@ -3710,7 +3720,7 @@ _int_malloc(mstate av, size_t bytes)
     else {
       void *p = sysmalloc(nb, av);
       if (p != NULL && __builtin_expect (perturb_byte, 0))
-	alloc_perturb (p, bytes);
+	  alloc_perturb (p, bytes);
       return p;
     }
   }
