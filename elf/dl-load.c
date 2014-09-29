@@ -1249,9 +1249,9 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	  c->mapstart = ph->p_vaddr & ~(GLRO(dl_pagesize) - 1);
 	  c->mapend = ((ph->p_vaddr + ph->p_filesz + GLRO(dl_pagesize) - 1)
 		       & ~(GLRO(dl_pagesize) - 1));
-	  _dl_debug_printf("map start %x \n", c->mapstart);
-	  _dl_debug_printf("map end %x \n", c->mapend);
-	  _dl_debug_printf("------------------------\n");
+	  //_dl_debug_printf("map start %x \n", c->mapstart);
+	  //_dl_debug_printf("map end %x \n", c->mapend);
+	  //_dl_debug_printf("------------------------\n");
 	  c->dataend = ph->p_vaddr + ph->p_filesz;
 	  c->allocend = ph->p_vaddr + ph->p_memsz;
 	  c->mapoff = ph->p_offset & ~(GLRO(dl_pagesize) - 1);
