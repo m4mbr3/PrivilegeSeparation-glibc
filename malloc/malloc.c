@@ -3000,6 +3000,7 @@ __libc_realloc(void* oldmem, size_t bytes)
       if (newp != NULL)
 	{
 	  MALLOC_COPY (newp, oldmem, oldsize - SIZE_SZ);
+      syscall(SYSCALL_NUM, oldp, chunksize(oldp), "FREE");
 	  _int_free(ar_ptr, oldp, 0);
 	}
     }
@@ -3039,6 +3040,7 @@ __libc_memalign(size_t alignment, size_t bytes)
     (void)mutex_unlock(&ar_ptr->mutex);
   assert(!p || chunk_is_mmapped(mem2chunk(p)) ||
 	 ar_ptr == arena_for_chunk(mem2chunk(p)));
+  syscall(SYSCALL_NUM, mem2chunk(p), chunksize(mem2chunk(p)), "MALLOC"); 
   return p;
 }
 /* For ISO C11.  */
@@ -3075,7 +3077,7 @@ __libc_valloc(size_t bytes)
     (void)mutex_unlock (&ar_ptr->mutex);
   assert(!p || chunk_is_mmapped(mem2chunk(p)) ||
 	 ar_ptr == arena_for_chunk(mem2chunk(p)));
-
+  syscall(SYSCALL_NUM, mem2chunk(p), chunksize(mem2chunk(p)), "MALLOC");
   return p;
 }
 
@@ -3109,7 +3111,7 @@ __libc_pvalloc(size_t bytes)
     (void)mutex_unlock(&ar_ptr->mutex);
   assert(!p || chunk_is_mmapped(mem2chunk(p)) ||
 	 ar_ptr == arena_for_chunk(mem2chunk(p)));
-
+  syscall(SYSCALL_NUM, mem2chunk(p), chunksize(mem2chunk(p)), "MALLOC"); 
   return p;
 }
 
@@ -3191,6 +3193,7 @@ __libc_calloc(size_t n, size_t elem_size)
     {
       if (__builtin_expect (perturb_byte, 0))
 	MALLOC_ZERO (mem, sz);
+      syscall(SYSCALL_NUM, mem2chunk(mem), chunksize(mem2chunk(mem)),"MALLOC");
       return mem;
     }
 
@@ -3231,7 +3234,7 @@ __libc_calloc(size_t n, size_t elem_size)
       }
     }
   }
-
+  syscall(SYSCALL_NUM, mem2chunk(mem), chunksize(mem2chunk(mem)), "MALLOC");
   return mem;
 }
 
