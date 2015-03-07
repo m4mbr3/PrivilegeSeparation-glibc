@@ -15,12 +15,14 @@
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
+   
 
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libintl.h>
 #include <stdbool.h>
+#include "privsep.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -38,6 +40,10 @@
 #include <stap-probe.h>
 
 #include <dl-dst.h>
+
+struct PrivSec_t *head=NULL, *curr=NULL;
+int max = -1;
+bool flag = false;
 
 /* On some systems, no flag bits are given to specify file mapping.  */
 #ifndef MAP_FILE
@@ -106,6 +112,7 @@ int __stack_prot attribute_hidden attribute_relro
 #else
   = 0;
 #endif
+
 
 
 /* Type for the buffer we put the ELF header and hopefully the program
@@ -908,7 +915,34 @@ lose (int code, int fd, const char *name, char *realname, struct link_map *l,
 
   _dl_signal_error (code, name, NULL, msg);
 }
-
+/* Function to convert the privilege level from char to int*/
+int char_to_num( char* pStr ) 
+{
+  int iRetVal = 0; 
+ 
+  if ( pStr )
+  {
+    while ( *pStr && *pStr <= '9' && *pStr >= '0' ) 
+    {
+      iRetVal = (iRetVal * 10) + (*pStr - '0');
+      pStr++;
+    }
+  } 
+  return iRetVal; 
+} 
+/* Function to compare the first part of the string and see if it matches*/
+int
+_cmp_ps_string (char *str1, const char *str2) {
+	if (*str1 == '\0') return -1;
+        int len2 = strlen(str2);
+	int len1 = strlen(str1);
+	if (len2 > len1) return -1;
+	int i;
+	for (i=0; i<len2; ++i) {
+	  if (*(str1+i) != *(str2+i)) return -1; 
+	}
+	return 1;
+}
 
 /* Map in the shared object NAME, actually located in REALNAME, and already
    opened on FD.  */
@@ -925,6 +959,9 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
   const ElfW(Ehdr) *header;
   const ElfW(Phdr) *phdr;
   const ElfW(Phdr) *ph;
+  const ElfW(Shdr) *shdr;
+  const ElfW(Shdr) *sh;
+  size_t maplengthsh;
   size_t maplength;
   int type;
   struct stat64 st;
@@ -1065,6 +1102,82 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
       errstring = N_("cannot create shared object descriptor");
       goto call_lose_errno;
     }
+  //Get the length of all the section headers
+  maplengthsh = header->e_shnum * sizeof(Elf32_Shdr);
+  //Get the pointer to the beginning of the first section header in the buffer
+  if (header->e_shoff + maplengthsh <= (size_t) fbp->len)
+     shdr = (void *) (fbp->buf + header->e_shoff);
+  else {
+     shdr = alloca(maplengthsh);
+     __lseek(fd, header->e_shoff, SEEK_SET);
+     if ((size_t) __libc_read (fd, (void *) shdr, maplengthsh) != maplengthsh) {
+	errstring = N_("cannot read file data");
+	goto call_lose_errno;
+     }
+  }
+  int counter=0;
+  //Offset of the string table
+  int strndx=0;
+  //Size of the string table 
+  int strsiz=0;
+  for (sh = shdr,counter = 0; counter < header->e_shnum ;++counter,++sh) {
+  	if ( counter == header->e_shstrndx) {
+	  //The information are contained in the header number "shstrndx" 
+	  strndx = sh->sh_offset; 
+	  strsiz = sh->sh_size;
+	}
+  }
+  char* strptr;
+  //Get the pointer to the beginnig of the string table
+  if (strndx+strsiz <= (size_t) fbp->len)
+     strptr = (void *)(fbp->buf + strndx); 
+  else {
+     strptr = alloca(strsiz);
+     __lseek(fd, strndx, SEEK_SET);
+     if ((size_t) __libc_read (fd, (void *) strptr, strsiz) != strsiz) {
+	errstring = N_("cannot read file data");
+	goto call_lose_errno;
+     }
+  }
+  //Struct used to map segments and names, the one to be sent to the kernel somehow :)
+  bool flag2 = false;
+  const char *fun = ".fun_ps_";
+  const char *dat = ".dat_ps_";
+  //Construction of the data struct we the mapping information
+  for (counter =0, sh = shdr; counter < header->e_shnum; ++counter,++sh) {
+	char *name = malloc(sizeof(char)*strlen(strptr+sh->sh_name));
+	strcpy(name, strptr+sh->sh_name);
+	if (*(name) != '\0' ) {
+	   if ((_cmp_ps_string(name, fun) == 1) || (_cmp_ps_string(name, dat) == 1)) {
+	   //Create a new element in the list if .fun_ps_ or .dat_ps_ section name is detected
+		   flag = true;	   	  
+           flag2 = true;
+		   int num = char_to_num(name+8);
+		   if (max < num) max = num; 
+		   if (head == NULL) {
+		      head = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t));
+		      head->add_beg = sh->sh_addr;
+		      head->add_end = 0x0;
+		      head->next = NULL;
+		      strcpy((char *)head->name, (const char *)strptr+sh->sh_name);
+		      curr = head;
+		   }
+		   else {
+		      curr->next = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t)); 
+		      if (curr->next == NULL) {
+			errstring = N_("cannot allocate enough memory");
+			goto call_lose_errno;
+		      }
+		      curr = curr->next;
+		      curr->add_beg = sh->sh_addr;
+		      curr->add_end = 0x0;
+		      curr->next = NULL;
+		      strcpy((char *)curr->name, (const char *) strptr+sh->sh_name);
+		   }
+	   }
+	}
+	free(name);
+  }
 
   /* Extract the remaining details we need from the ELF header
      and then read in the program header table.  */
@@ -1093,7 +1206,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 
   {
     /* Scan the program header table, collecting its load commands.  */
-    struct loadcmd
+    struct loadcmd 
       {
 	ElfW(Addr) mapstart, mapend, dataend, allocend;
 	ElfW(Off) mapoff;
@@ -1142,9 +1255,13 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	  c->mapstart = ph->p_vaddr & ~(GLRO(dl_pagesize) - 1);
 	  c->mapend = ((ph->p_vaddr + ph->p_filesz + GLRO(dl_pagesize) - 1)
 		       & ~(GLRO(dl_pagesize) - 1));
+	  //_dl_debug_printf("map start %x \n", c->mapstart);
+	  //_dl_debug_printf("map end %x \n", c->mapend);
+	  //_dl_debug_printf("------------------------\n");
 	  c->dataend = ph->p_vaddr + ph->p_filesz;
 	  c->allocend = ph->p_vaddr + ph->p_memsz;
 	  c->mapoff = ph->p_offset & ~(GLRO(dl_pagesize) - 1);
+
 
 	  /* Determine whether there is a gap between the last segment
 	     and this one.  */
@@ -1270,7 +1387,6 @@ cannot allocate TLS data structures for initial thread");
 
     /* Length of the sections to be loaded.  */
     maplength = loadcmds[nloadcmds - 1].allocend - c->mapstart;
-
     if (__builtin_expect (type, ET_DYN) == ET_DYN)
       {
 	/* This is a position-independent shared object.  We can let the
@@ -1413,8 +1529,48 @@ cannot allocate TLS data structures for initial thread");
 
 	++c;
       }
-  }
+      if (flag2) {
+	     curr = head;
+	     /* Basing on the information of the physical headers.
+	      * Here I correct the beginning address and the end address of the data structure */
+	     while (curr != NULL) {
+		struct loadcmd *tmp = loadcmds; 
+		Elf32_Addr tmpadd_beg=0;
+		Elf32_Addr tmpadd_end=0;
+		int i;
+		for (i=0; i< nloadcmds; ++i) {
+		   if((tmpadd_beg < tmp[i].mapstart) && (tmp[i].mapstart < curr->add_beg)){	
+			tmpadd_beg = tmp[i].mapstart;
+			tmpadd_end = tmp[i].mapend;
+		   }
+		}
+		curr->add_beg = tmpadd_beg;
+		curr->add_end = tmpadd_end;
+		curr = curr->next;
+	     }
+	     	     curr = head;
+	     while (curr != NULL) {
+		if ( max != char_to_num(curr->name+8) ) {
+			if (_cmp_ps_string(curr->name, fun) == 1)
+			{
+			  _dl_debug_printf("PROT_NONE %s %x %x\n", curr->name, curr->add_beg, curr->add_end);
+			  __mprotect ((void *)curr->add_beg,
+			 	(size_t)curr->add_end-curr->add_beg,
+			       PROT_NONE);
+			}
+			else { 
+			  _dl_debug_printf("PROT_WRITE %s %x %x\n", curr->name, curr->add_beg, curr->add_end);
+			  __mprotect ((void *)curr->add_beg,
+			 	(size_t)curr->add_end-curr->add_beg,
+			       PROT_NONE);
+			}
 
+		}
+		curr = curr->next;
+	     }
+	}
+  }
+  
   if (l->l_ld == 0)
     {
       if (__builtin_expect (type == ET_DYN, 0))

@@ -41,7 +41,7 @@
 #include <tls.h>
 #include <stap-probe.h>
 #include <stackinfo.h>
-
+#include "privsep.h"
 #include <assert.h>
 
 /* Avoid PLT use for our local calls at startup.  */
@@ -328,8 +328,11 @@ _dl_start_final (void *arg, struct dl_start_final_info *info)
      file access.  It will call `dl_main' (below) to do all the real work
      of the dynamic linker, and then unwind our frame and run the user
      entry point on the same stack we entered on.  */
+  //struct PrivSec_t *head = NULL, *curr = NULL;
   start_addr = _dl_sysdep_start (arg, &dl_main);
-
+  if ( flag ) 
+    syscall(351, head, max);
+ 
 #ifndef HP_TIMING_NONAVAIL
   hp_timing_t rtld_total_time;
   if (HP_TIMING_AVAIL)
