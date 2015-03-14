@@ -43,7 +43,7 @@
 
 struct PrivSec_t *head=NULL, *curr=NULL;
 int max = -1;
-bool flag = false;
+bool ex_flag = false;
 
 /* On some systems, no flag bits are given to specify file mapping.  */
 #ifndef MAP_FILE
@@ -1036,7 +1036,7 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
     }
 
   /* Print debugging message.  */
-  if (__builtin_expect (GLRO(dl_debug_mask) & DL_DEBUG_FILES, 0))
+    if (__builtin_expect (GLRO(dl_debug_mask) & DL_DEBUG_FILES, 0))
     _dl_debug_printf ("file=%s [%lu];  generating link map\n", name, nsid);
 
   /* This is the ELF header.  We read it in `open_verify'.  */
@@ -1144,39 +1144,41 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
   const char *fun = ".fun_ps_";
   const char *dat = ".dat_ps_";
   //Construction of the data struct we the mapping information
-  for (counter =0, sh = shdr; counter < header->e_shnum; ++counter,++sh) {
-	char *name = malloc(sizeof(char)*strlen(strptr+sh->sh_name));
-	strcpy(name, strptr+sh->sh_name);
-	if (*(name) != '\0' ) {
-	   if ((_cmp_ps_string(name, fun) == 1) || (_cmp_ps_string(name, dat) == 1)) {
-	   //Create a new element in the list if .fun_ps_ or .dat_ps_ section name is detected
-		   flag = true;	   	  
-           flag2 = true;
-		   int num = char_to_num(name+8);
-		   if (max < num) max = num; 
-		   if (head == NULL) {
-		      head = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t));
-		      head->add_beg = sh->sh_addr;
-		      head->add_end = 0x0;
-		      head->next = NULL;
-		      strcpy((char *)head->name, (const char *)strptr+sh->sh_name);
-		      curr = head;
-		   }
-		   else {
-		      curr->next = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t)); 
-		      if (curr->next == NULL) {
-			errstring = N_("cannot allocate enough memory");
-			goto call_lose_errno;
-		      }
-		      curr = curr->next;
-		      curr->add_beg = sh->sh_addr;
-		      curr->add_end = 0x0;
-		      curr->next = NULL;
-		      strcpy((char *)curr->name, (const char *) strptr+sh->sh_name);
-		   }
-	   }
-	}
-	free(name);
+  if (!ex_flag) {
+      for (counter =0, sh = shdr; counter < header->e_shnum; ++counter,++sh) {
+        char *name = malloc(sizeof(char)*strlen(strptr+sh->sh_name));
+        strcpy(name, strptr+sh->sh_name);
+        if (*(name) != '\0' ) {
+           if ((_cmp_ps_string(name, fun) == 1) || (_cmp_ps_string(name, dat) == 1)) {
+           //Create a new element in the list if .fun_ps_ or .dat_ps_ section name is detected
+               ex_flag = true;	   	  
+               flag2 = true;
+               int num = char_to_num(name+8);
+               if (max < num) max = num; 
+               if (head == NULL) {
+                  head = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t));
+                  head->add_beg = sh->sh_addr;
+                  head->add_end = 0x0;
+                  head->next = NULL;
+                  strcpy((char *)head->name, (const char *)strptr+sh->sh_name);
+                  curr = head;
+               }
+               else {
+                  curr->next = (struct PrivSec_t *) malloc(sizeof(struct PrivSec_t)); 
+                  if (curr->next == NULL) {
+                errstring = N_("cannot allocate enough memory");
+                goto call_lose_errno;
+                  }
+                  curr = curr->next;
+                  curr->add_beg = sh->sh_addr;
+                  curr->add_end = 0x0;
+                  curr->next = NULL;
+                  strcpy((char *)curr->name, (const char *) strptr+sh->sh_name);
+               }
+           }
+        }
+        free(name);
+    }
   }
 
   /* Extract the remaining details we need from the ELF header
@@ -1568,7 +1570,8 @@ cannot allocate TLS data structures for initial thread");
 		}
 		curr = curr->next;
 	     }
-	}
+	 }
+     flag2=false;
   }
   
   if (l->l_ld == 0)
@@ -2280,7 +2283,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 
   /* Display information if we are debugging.  */
   if (__builtin_expect (GLRO(dl_debug_mask) & DL_DEBUG_FILES, 0)
-      && loader != NULL)
+     && loader != NULL)
     _dl_debug_printf ((mode & __RTLD_CALLMAP) == 0
 		      ? "\nfile=%s [%lu];  needed by %s [%lu]\n"
 		      : "\nfile=%s [%lu];  dynamically loaded by %s [%lu]\n",

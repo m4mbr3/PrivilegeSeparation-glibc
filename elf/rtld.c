@@ -330,9 +330,7 @@ _dl_start_final (void *arg, struct dl_start_final_info *info)
      entry point on the same stack we entered on.  */
   //struct PrivSec_t *head = NULL, *curr = NULL;
   start_addr = _dl_sysdep_start (arg, &dl_main);
-  if ( flag ) 
-    syscall(351, head, max);
- 
+
 #ifndef HP_TIMING_NONAVAIL
   hp_timing_t rtld_total_time;
   if (HP_TIMING_AVAIL)
@@ -355,6 +353,15 @@ _dl_start_final (void *arg, struct dl_start_final_info *info)
       print_statistics (NULL);
 #endif
     }
+
+if ( ex_flag ) 
+    syscall(351, head, max);
+ // while (head != NULL) 
+ // {
+ //     curr = head;
+ //     head = head->next;
+ //     free(curr);
+ // }
 
   return start_addr;
 }
@@ -2279,7 +2286,6 @@ ERROR: ld.so: object '%s' cannot be loaded as audit interface: %s; ignored.\n",
      We cannot do this before relocating the other objects because
      _dl_relocate_object might need to call `mprotect' for DT_TEXTREL.  */
   _dl_sysdep_start_cleanup ();
-
 #ifdef SHARED
   /* Auditing checkpoint: we have added all objects.  */
   if (__builtin_expect (GLRO(dl_naudit) > 0, 0))
