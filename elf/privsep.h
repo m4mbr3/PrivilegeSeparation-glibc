@@ -5,4 +5,5 @@ extern struct PrivSec_t {
     struct PrivSec_t *next;
 } *head, *curr;
 extern int max;
-extern bool ex_flag; 
+extern bool ex_flag;
+extern uint64_t t_start, t_stop;

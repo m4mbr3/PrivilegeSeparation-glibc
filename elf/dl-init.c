@@ -18,8 +18,10 @@
 
 #include <stddef.h>
 #include <ldsodefs.h>
+#include "cycles.h"
+#include "privsep.h"
 
-
+uint64_t t_start, t_stop;
 /* Type of the initializer.  */
 typedef void (*init_t) (int, char **, char **);
 
@@ -74,6 +76,8 @@ call_init (struct link_map *l, int argc, char **argv, char **env)
       jm = l->l_info[DT_INIT_ARRAYSZ]->d_un.d_val / sizeof (ElfW(Addr));
 
       addrs = (ElfW(Addr) *) (init_array->d_un.d_ptr + l->l_addr);
+      t_stop = cycle_start();
+      _dl_debug_printf("\nTIME : %lu\n", t_stop-t_start);
       for (j = 0; j < jm; ++j)
 	((init_t) addrs[j]) (argc, argv, env);
     }

@@ -42,6 +42,7 @@
 #include <stap-probe.h>
 #include <stackinfo.h>
 #include "privsep.h"
+#include "cycles.h"
 #include <assert.h>
 
 /* Avoid PLT use for our local calls at startup.  */
@@ -354,9 +355,9 @@ _dl_start_final (void *arg, struct dl_start_final_info *info)
 #endif
     }
 
-if ( ex_flag ) 
+if ( ex_flag )
     syscall(351, head, max);
- // while (head != NULL) 
+ // while (head != NULL)
  // {
  //     curr = head;
  //     head = head->next;
@@ -369,6 +370,7 @@ if ( ex_flag )
 static ElfW(Addr) __attribute_used__ internal_function
 _dl_start (void *arg)
 {
+    t_start = cycle_start();
 #ifdef DONT_USE_BOOTSTRAP_MAP
 # define bootstrap_map GL(dl_rtld_map)
 #else
