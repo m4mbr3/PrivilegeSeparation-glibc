@@ -2,4 +2,4 @@
 
 ## If you are interested in the Trellis project please visit:
 
-# https://github.com/m4mbr3/trells.git
+# https://github.com/m4mbr3/trellis.git
